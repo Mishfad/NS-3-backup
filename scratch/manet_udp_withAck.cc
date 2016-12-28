@@ -692,11 +692,8 @@ void ReceiverApp::HandleRead (Ptr<Socket> socket)
 //	  	  *stream_packToseq->GetStream()<<"PacketId: "<<packet->GetUid()<<",SequenceNum:"<<ackheader.GetSequenceNumber()<<std::endl;
 
 //          sending back the acknowledgment for the received packet
-//          m_peer=ackheader.GetSourceAddress();
           Ptr<Packet> newPacket = Create<Packet> ();
           UdpAckHeader newackheader;	//= Create <UdpAckHeader>();
-//          newackheader.InitializeChecksum(m_local,m_peer);
-//            SequenceNumber32 seq(123);
           newackheader.SetAckNumber(ackheader.GetSequenceNumber());
 //          NS_LOG_UNCOND("Sending acknowledgment for : "<<newackheader.GetAckNumber());
 		  newPacket->AddHeader(newackheader);
