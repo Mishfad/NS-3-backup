@@ -243,42 +243,12 @@ SendApp::StartApplication (void)
 	  m_socket->Bind ();
 	  m_socket->Connect (m_peer);
 	}
+// setup receive callback for the sending socket
   m_socket->SetRecvCallback (MakeCallback (&SendApp::HandleRead, this));
 
   SendPacket ();
-//  CreateReceiveSocket();
 }
 
-//void
-//SendApp::CreateReceiveSocket()
-//{
-//  NS_LOG_FUNCTION (this);
-//	  m_receivesocket->Bind (m_local);
-//	  m_receivesocket->Listen ();
-//	  m_receivesocket->ShutdownSend ();
-//	  if (addressUtils::IsMulticast (m_local))
-//		{
-//		  Ptr<UdpSocket> udpSocket = DynamicCast<UdpSocket> (m_receivesocket);
-//		  if (udpSocket)
-//			{
-//			  // equivalent to setsockopt (MCAST_JOIN_GROUP)
-//			  udpSocket->MulticastJoinGroup (0, m_local);
-//			}
-//		  else
-//			{
-//			  NS_FATAL_ERROR ("Error: joining multicast on a non-UDP socket");
-//			}
-//		}
-//	}
-
-//  m_socket->SetAcceptCallback (
-//	MakeNullCallback<bool, Ptr<Socket>, const Address &> (),
-//	MakeCallback (&SendApp::HandleAccept, this));
-//  m_socket->SetCloseCallbacks (
-//	MakeCallback (&SendApp::HandlePeerClose, this),
-//	MakeCallback (&SendApp::HandlePeerError, this));
-
-//}
 void
 SendApp::StopApplication (void)
 {
@@ -345,19 +315,22 @@ SendApp::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize)
 	  isRetransmission = true;
 	}
 
+//	creates a new packet by reading maxSize number of bytes starting from seq
 	Ptr<Packet> p = m_txBuffer->CopyFromSequence (maxSize, seq);
 	uint32_t sz = p->GetSize (); // Size of packet
+
 //	uint32_t remainingData = m_txBuffer->SizeFromSequence (seq + SequenceNumber32 (sz));
 //	NS_LOG_UNCOND(remainingData);
+
 	if (m_retxEvent.IsExpired ())
 	{
-	  // Schedules retransmit timeout. If this is a retransmission, double the timer
-
+//	Schedules retransmit timeout. (Standard techniques is, if this is a retransmission, double the timer).
+//	Since we are not bothered about it, we keep it m_rto
 	  if (isRetransmission)
 		{ // This is a retransmit
 		  // RFC 6298, clause 2.5
 		  Time doubledRto = m_rto;
-		  m_rto = Min (doubledRto, Time::FromDouble (60,  Time::S));
+		  m_rto = Min (doubledRto, Time::FromDouble (60,  Time::S)); // upper thresholding by 60s
 		}
 
 	  NS_LOG_LOGIC (this << " SendDataPacket Schedule ReTxTimeout at time " <<
@@ -368,7 +341,6 @@ SendApp::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize)
 
 //	Adding header
 	UdpAckHeader sendackheader;
-	//	  sendackheader.InitializeChecksum(m_local,m_peer);
 	sendackheader.SetSequenceNumber(seq);
 
 //	Ipv4Address ipv4address = Ipv4Address ("255.255.255.255");
@@ -443,7 +415,7 @@ SendApp::SendPendingPackets()
   while (m_txBuffer->SizeFromSequence (m_nextTxSequence))
 	{
 	  uint32_t w = m_windowSize; // Get available window size
-//	  uint32_t s = std::min (w, m_tcb->m_segmentSize);  // Send no more than window
+//	Sends packet of size 'w' bytes from the transmit buffer, starting from m_nextTxSequence
 	  uint32_t sz = SendDataPacket (m_nextTxSequence, w);
 	  nPacketsSent++;                             // Count sent this loop
 	  m_nextTxSequence += sz;                     // Advance next tx sequence
@@ -458,8 +430,8 @@ SendApp::SendPendingPackets()
 void
 SendApp::SendPacket (void)
 {
-//	for (uint8_t i=0;i<m_count;i++)
-	{
+//	First, we move all the packets to the transmit buffer.
+//	Later, the packets will be send by reading from the buffer in SendPendingData
 	  Ptr<Packet> packet = Create<Packet> (m_packetSize);
       if (!m_txBuffer->Add (packet))
         { // TxBuffer overflow, send failed
@@ -467,8 +439,6 @@ SendApp::SendPacket (void)
         }
       SendPendingPackets();
 //	  m_socket->Send (packet);
-	}
-//  NS_LOG_UNCOND(Simulator::Now().GetSeconds()<<"\tPacket number: "<<int(*(p+1))<<int(*(p))<<"\tId: "<<packet->GetUid());
 
 //  if (++m_packetsSent < m_nPackets)
     {
@@ -613,27 +583,9 @@ void ReceiverApp::StartApplication ()    // Called at time specified by Start
       m_socket = Socket::CreateSocket (GetNode(), m_tid);
       NS_LOG_UNCOND("Created socket at "<<GetNode()->GetId());
       m_socket->Bind (m_local);
-//      m_socket->Listen ();
-//      m_socket->ShutdownSend ();
-//      if (addressUtils::IsMulticast (m_local))
-//        {
-//          Ptr<UdpSocket> udpSocket = DynamicCast<UdpSocket> (m_socket);
-//          if (udpSocket)
-//            {
-//              // equivalent to setsockopt (MCAST_JOIN_GROUP)
-//              udpSocket->MulticastJoinGroup (0, m_local);
-//            }
-//          else
-//            {
-//              NS_FATAL_ERROR ("Error: joining multicast on a non-UDP socket");
-//            }
-//        }
     }
 
   m_socket->SetRecvCallback (MakeCallback (&ReceiverApp::HandleRead, this));
-//  m_socket->SetAcceptCallback (
-//    MakeNullCallback<bool, Ptr<Socket>, const Address &> (),
-//    MakeCallback (&ReceiverApp::HandleAccept, this));
   m_socket->SetCloseCallbacks (
     MakeCallback (&ReceiverApp::HandlePeerClose, this),
     MakeCallback (&ReceiverApp::HandlePeerError, this));
@@ -681,12 +633,8 @@ void ReceiverApp::HandleRead (Ptr<Socket> socket)
 //					   	 <<" packet with seq num:"<<(rxd_seq-1)/536);
 
 //          Caching...
-          double min = 0.0;
-          double max = 1.0;
-          Ptr<UniformRandomVariable> x = CreateObject<UniformRandomVariable> ();
-// At destination there is no probability business as the file has reached the destination. To track the number of packets, we simply cache the packet with probability 1
-          if(x->GetValue(min,max)<1)
-        	  CachePacket((rxd_seq-1)/536);
+ // At destination there is no probability business as the file has reached the destination. To track the number of packets, we simply cache the packet with probability 1
+		  CachePacket((rxd_seq-1)/536);
 //	  	  AsciiTraceHelper ascii;
 //	  	  Ptr<OutputStreamWrapper> stream_packToseq = ascii.CreateFileStream("packetidToSeq.txt",std::ios::app);
 //	  	  *stream_packToseq->GetStream()<<"PacketId: "<<packet->GetUid()<<",SequenceNum:"<<ackheader.GetSequenceNumber()<<std::endl;
@@ -765,9 +713,6 @@ void MyApp::StartApplication ()    // Called at time specified by Start
       m_socket->Bind (local);
     }
       m_socket->SetRecvCallback (MakeCallback (&MyApp::HandleRead, this));
-//      m_socket->SetCloseCallbacks (
-//    		  MakeCallback (&MyApp::HandlePeerClose, this),
-//			  MakeCallback (&MyApp::HandlePeerError, this));
 }
 
 void MyApp::StopApplication ()     // Called at time specified by Stop
@@ -801,27 +746,22 @@ MyApp::PrintReceivedPacket (Ptr<Socket> socket, Ptr<Packet> packet)
   SocketAddressTag tag;
   bool found = packet->PeekPacketTag (tag);
 
-
   std::ostringstream oss;
   AsciiTraceHelper ascii;
   Ptr<OutputStreamWrapper> stream_rx = ascii.CreateFileStream("first_routing.txt",std::ios::app);
 
   oss << Simulator::Now ().GetSeconds () << " Node:" << socket->GetNode()->GetId ()<<" received";
-
-//  uint8_t buff[2];
-//  packet->CopyData(&buff[0],2);
-//  oss<<"Inside printrxddata";
   if (found)
     {
       InetSocketAddress addr = InetSocketAddress::ConvertFrom (tag.GetAddress ());
 //      oss << " received one packet from " << addr.GetIpv4 ()<<"\tPacket: "<<packet->GetUid()<<" data:"<<int(buff[1])<<int(buff[0])<<packet->ToString();
       if(socket->GetNode()->GetId()==0)
-    	  *stream_rx->GetStream()<< Simulator::Now ().GetSeconds ()<<",Route:0"<<", Node:"<<socket->GetNode()->GetId()<<",Destination:10.1.1.1" << ",Source:" << addr.GetIpv4 () << ",packet:" << packet->GetUid ()<<std::endl;
-//      NS_LOG_UNCOND(Simulator::Now ().GetSeconds ()<<",Route:0"<<", Node:"<<socket->GetNode()->GetId()<<",Destination:10.1.1.1"  << ",Source:" << addr.GetIpv4 () << ",packet:" << packet->GetUid ());
-    }
-  else
-    {
-//      oss << " \treceived one packet!"<<"\tPacket: "<<packet->GetUid()<<" data:"<<int(buff[1])<<int(buff[0]);
+    	  {
+			  *stream_rx->GetStream()<< Simulator::Now ().GetSeconds ()
+				  <<",Route:0"<<", Node:"<<socket->GetNode()->GetId()
+				  <<",Destination:10.1.1.1" << ",Source:" << addr.GetIpv4 ()
+				  << ",packet:" << packet->GetUid ()<<std::endl;
+    	  }
     }
 //  NS_LOG_UNCOND(oss.str ());
 }
@@ -843,33 +783,16 @@ MyApp::HandleRead (Ptr<Socket> socket)
     		  <<" receiving data "<<(rxd_seq-1)/536
 			  <<" from "<<InetSocketAddress::ConvertFrom(from).GetIpv4 ());
 
-
-
+      // caching with probability 'prob'
       double min = 0.0;
       double max = 1.0;
       Ptr<UniformRandomVariable> x = CreateObject<UniformRandomVariable> ();
       if(x->GetValue(min,max)<prob)
     	  CachePacket((rxd_seq-1)/536,socket->GetNode());
 
-
       PrintReceivedPacket (socket, packet);
     }
 }
-
-
-//static void
-//CwndChange (uint32_t oldCwnd, uint32_t newCwnd)
-//{
-////  NS_LOG_UNCOND (Simulator::Now ().GetSeconds () << "\t" << newCwnd);
-//}
-
-//static void
-//TransmitTrace(Ptr<const Packet> packet, Ptr<Ipv4> ipv4,  uint32_t num)
-//{
-//  uint8_t buffer;
-//  packet->CopyData(&buffer,1);
-//  NS_LOG_LOGIC (Simulator::Now ().GetSeconds () << "\t Transmit trace\t" << packet->GetUid() <<"\t"<<ipv4->GetInstanceTypeId()<<"\t"<<int(buffer));
-//}
 
 static void
 LocalDelivery(Ptr<OutputStreamWrapper> broadcast_stream,Ptr<OutputStreamWrapper> unicast_stream,std::string context,Ptr<const Node> node,const Ipv4Header &header, Ptr<const Packet> packet, uint32_t num)
@@ -915,130 +838,99 @@ RxDrop (Ptr<const Packet> p)
 void
 CachePrint(Ptr<Node> node)
 {
-//	NS_LOG_UNCOND("Cache in Node:"<<node->GetId());
 	AsciiTraceHelper ascii;
 	Ptr<OutputStreamWrapper> stream_cache = ascii.CreateFileStream("CachedPackets.txt",std::ios::app);
 	node->PrintCache();
 	std::ostringstream stream;
 	node->ReadCache(stream);
 	*stream_cache->GetStream()<<stream.str();
-//	NS_LOG_UNCOND("Node: "<<node->GetId()<<" Packets stored: "<<stream.str());
 }
 
 int 
 main (int argc, char *argv[])
 {
 
-  NodeContainer nodes;
-  nodes.Create (nNodes);
+	NodeContainer nodes;
+	nodes.Create (nNodes);
 
-  // setting up wifi phy and channel using helpers
-    WifiHelper wifi;
-    wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
+	// setting up wifi phy and channel using helpers
+	WifiHelper wifi;
+	wifi.SetStandard (WIFI_PHY_STANDARD_80211b);
 
-    YansWifiPhyHelper wifiPhy =  YansWifiPhyHelper::Default ();
-    YansWifiChannelHelper wifiChannel;
-    wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
-    wifiChannel.AddPropagationLoss ("ns3::FriisPropagationLossModel");
-    wifiPhy.SetChannel (wifiChannel.Create ());
+	YansWifiPhyHelper wifiPhy =  YansWifiPhyHelper::Default ();
+	YansWifiChannelHelper wifiChannel;
+	wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
+	wifiChannel.AddPropagationLoss ("ns3::FriisPropagationLossModel");
+	wifiPhy.SetChannel (wifiChannel.Create ());
 
-    // Add a mac and disable rate control
-//    WifiMacHelper wifiMac;
-    NqosWifiMacHelper wifiMac = NqosWifiMacHelper::Default ();
-    wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
-                                  "DataMode",StringValue ("DsssRate1Mbps"),
-                                  "ControlMode",StringValue ("DsssRate1Mbps"));
+	// Add a mac and disable rate control
+	NqosWifiMacHelper wifiMac = NqosWifiMacHelper::Default ();
+	wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
+								  "DataMode",StringValue ("DsssRate1Mbps"),
+								  "ControlMode",StringValue ("DsssRate1Mbps"));
+	wifiPhy.Set ("TxPowerStart",DoubleValue (txp));
+	wifiPhy.Set ("TxPowerEnd", DoubleValue (txp));
+	wifiMac.SetType ("ns3::AdhocWifiMac");
 
-    wifiPhy.Set ("TxPowerStart",DoubleValue (txp));
-    wifiPhy.Set ("TxPowerEnd", DoubleValue (txp));
+	NetDeviceContainer devices = wifi.Install (wifiPhy, wifiMac, nodes);
+	//  Ptr<RateErrorModel> em = CreateObject<RateErrorModel> ();
+	//  em->SetAttribute ("ErrorRate", DoubleValue (0.00001));
+	//  devices.Get (1)->SetAttribute ("ReceiveErrorModel", PointerValue (em));
 
-    wifiMac.SetType ("ns3::AdhocWifiMac");
-//  PointToPointHelper pointToPoint;
-//  pointToPoint.SetDeviceAttribute ("DataRate", StringValue ("5Mbps"));
-//  pointToPoint.SetChannelAttribute ("Delay", StringValue ("2ms"));
+	MobilityHelper manet_mobility;
+	int64_t stream_index=0;
 
-    NetDeviceContainer devices = wifi.Install (wifiPhy, wifiMac, nodes);
-//		  pointToPoint.Install (nodes);
+	ObjectFactory pos;
+	pos.SetTypeId("ns3::RandomRectanglePositionAllocator");
+	std::stringstream ssxrange;
+	std::stringstream ssyrange;
+	ssxrange << "ns3::UniformRandomVariable[Min=0.0|Max=" << xRange << "]";
+	ssyrange << "ns3::UniformRandomVariable[Min=0.0|Max=" << yRange << "]";
+	pos.Set("X",StringValue(ssxrange.str()));
+	pos.Set("Y",StringValue(ssyrange.str()));
 
-//  Ptr<RateErrorModel> em = CreateObject<RateErrorModel> ();
-//  em->SetAttribute ("ErrorRate", DoubleValue (0.00001));
-//  devices.Get (1)->SetAttribute ("ReceiveErrorModel", PointerValue (em));
+	Ptr<PositionAllocator> taPositionAlloc = pos.Create ()->GetObject<PositionAllocator> ();
+	stream_index += taPositionAlloc->AssignStreams (stream_index);
 
-  	MobilityHelper manet_mobility;
-  	int64_t stream_index=0;
+	std::stringstream ssSpeed;
+	ssSpeed << "ns3::UniformRandomVariable[Min=0.0|Max=" << nSpeed << "]";
+	std::stringstream ssPause;
+	ssPause << "ns3::ConstantRandomVariable[Constant=" << 0 << "]";
+	manet_mobility.SetMobilityModel ("ns3::RandomWaypointMobilityModel",
+									  "Speed", StringValue (ssSpeed.str ()),
+									  "Pause", StringValue (ssPause.str ()),
+									  "PositionAllocator", PointerValue (taPositionAlloc));
 
-  	ObjectFactory pos;
-  	pos.SetTypeId("ns3::RandomRectanglePositionAllocator");
-  	std::stringstream ssxrange;
-  	std::stringstream ssyrange;
- 	ssxrange << "ns3::UniformRandomVariable[Min=0.0|Max=" << xRange << "]";
- 	ssyrange << "ns3::UniformRandomVariable[Min=0.0|Max=" << yRange << "]";
+	manet_mobility.SetPositionAllocator(taPositionAlloc);
+	manet_mobility.Install(nodes);
+	stream_index+= manet_mobility.AssignStreams(nodes,stream_index);
 
-//  	pos.Set("X",StringValue("ns3::UniformRandomVariable[Min=0.0|Max=1000]"));
-//  	pos.Set("Y",StringValue("ns3::UniformRandomVariable[Min=0.0|Max=1000]"));
-  	pos.Set("X",StringValue(ssxrange.str()));
-  	pos.Set("Y",StringValue(ssyrange.str()));
+	// Internet stack, IPv4 address, interfaces
+	AodvHelper aodv_routing;
+	Ipv4ListRoutingHelper list;
+	InternetStackHelper internet_stack;
+	Ipv4AddressHelper address;
+	list.Add(aodv_routing,50);
+	internet_stack.SetRoutingHelper(list);
+	internet_stack.Install(nodes);
+	address.SetBase ("10.1.1.0", "255.255.255.0");
+	Ipv4InterfaceContainer interfaces = address.Assign (devices);
 
-  	Ptr<PositionAllocator> taPositionAlloc = pos.Create ()->GetObject<PositionAllocator> ();
-  	stream_index += taPositionAlloc->AssignStreams (stream_index);
-
-  	std::stringstream ssSpeed;
-  	ssSpeed << "ns3::UniformRandomVariable[Min=0.0|Max=" << nSpeed << "]";
-  	std::stringstream ssPause;
-  	ssPause << "ns3::ConstantRandomVariable[Constant=" << 0 << "]";
-  	manet_mobility.SetMobilityModel ("ns3::RandomWaypointMobilityModel",
-  	                                  "Speed", StringValue (ssSpeed.str ()),
-  	                                  "Pause", StringValue (ssPause.str ()),
-  	                                  "PositionAllocator", PointerValue (taPositionAlloc));
-
-  	manet_mobility.SetPositionAllocator(taPositionAlloc);
-  	manet_mobility.Install(nodes);
-  	stream_index+= manet_mobility.AssignStreams(nodes,stream_index);
-
-  	// Internet stack, IPv4 address, interfaces
-
-  	AodvHelper aodv_routing;
-  	Ipv4ListRoutingHelper list;
-  	InternetStackHelper internet_stack;
-
-  	list.Add(aodv_routing,50);
-  	internet_stack.SetRoutingHelper(list);
-  	internet_stack.Install(nodes);
-
-
-  Ipv4AddressHelper address;
-  address.SetBase ("10.1.1.0", "255.255.255.0");
-  Ipv4InterfaceContainer interfaces = address.Assign (devices);
-
-//  ns3TcpSocket->TraceConnectWithoutContext ("CongestionWindow", MakeCallback (&CwndChange));
-
-  Ptr<Ipv4L3Protocol> ipv4L3protocol = nodes.Get(0)->GetObject<Ipv4L3Protocol>();
-  Ptr<Ipv4PacketProbe> ipv4packetprob= nodes.Get(0)->GetObject<Ipv4PacketProbe>();
-
-    std::ostringstream oss;
-    oss << "/NodeList/*/$ns3::Ipv4L3Protocol/LocalDeliveryWithNode";
-//    ipv4L3protocol->TraceConnectWithoutContext("Tx",MakeCallback (&TransmitTrace));
-//    ipv4packetprob->TraceConnectWithoutContext("Output",MakeCallback(&ipv4Output));
-//    ipv4L3protocol->TraceConnectWithoutContext("LocalDeliver",MakeCallback (&LocalDelivery));
 
     AsciiTraceHelper ascii;
     Ptr<OutputStreamWrapper> stream_broadcast = ascii.CreateFileStream ("fifth_broadcast.txt");
     Ptr<OutputStreamWrapper> stream_unicast = ascii.CreateFileStream ("fifth_unicast.txt");
+    std::ostringstream oss;
+    oss << "/NodeList/*/$ns3::Ipv4L3Protocol/LocalDeliveryWithNode";
     Config::Connect(oss.str (), MakeBoundCallback (&LocalDelivery,stream_broadcast,stream_unicast));
 
 // Setting up the application
-//    OnOffHelper onoff1 (socketid,InetSocketAddress (Ipv4Address::GetAny(), port));
-//    onoff1.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=2.0]"));
-//    onoff1.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=3.0]"));
-//    AddressValue remoteAddress (InetSocketAddress (interfaces.GetAddress (manet_DestnId), port));
-//    onoff1.SetAttribute ("Remote", remoteAddress);
-//    ApplicationContainer myapp = onoff1.Install (nodes.Get(manet_sourceId));
 
 //    uint16_t sinkPort = 9;
-    Address sinkAddress (InetSocketAddress (interfaces.GetAddress (manet_DestnId), port));
-    Address sourceAddress (InetSocketAddress (interfaces.GetAddress (manet_sourceId), port1));
+    Address sinkAddress  (InetSocketAddress (interfaces.GetAddress (manet_DestnId ), port ));
+    Address sourceAddress(InetSocketAddress (interfaces.GetAddress (manet_sourceId), port1));
     Ptr<Node> sinkNode=nodes.Get(manet_DestnId);
-
+//	Setting up source application
     TypeId tid1 = TypeId::LookupByName (socketid);
     Ptr<Socket> ns3Socket = Socket::CreateSocket (nodes.Get (manet_sourceId), tid1);
     Ptr<SendApp> sendapp = CreateObject<SendApp> ();
@@ -1046,29 +938,16 @@ main (int argc, char *argv[])
     nodes.Get (manet_sourceId)->AddApplication (sendapp);
     sendapp->SetStartTime (Seconds (5.));
     sendapp->SetStopTime(stop_time);
+//	Setting up sink application
+    uint8_t sink_id=manet_DestnId;
+	Ptr<ReceiverApp> rxrapp = CreateObject<ReceiverApp> ();
+	rxrapp->Setup (tid1,sinkAddress);
+	nodes.Get(sink_id)->AddApplication (rxrapp);
+	rxrapp->SetStartTime (app_start+Seconds(sink_id));
+	rxrapp->SetStopTime (app_stop);
 
-    uint8_t i=manet_DestnId;
-//    for (uint8_t i=0;i<nNodes;i++)
-    {
-    	if (i!=manet_sourceId)
-    	{
-    	    Ptr<ReceiverApp> rxrapp = CreateObject<ReceiverApp> ();
-    		rxrapp->Setup (tid1,sinkAddress);
-    		nodes.Get(i)->AddApplication (rxrapp);
-//    		nodes.Get(2)->AddApplication (rxrapp);
-    		rxrapp->SetStartTime (app_start+Seconds(i));
-    	    rxrapp->SetStopTime (app_stop);
-    	}
-    }
-//    Address tempAddress (InetSocketAddress (interfaces.GetAddress (manet_DestnId), port));
-
-//	Ipv4Address addr("10.1.1.1");
-//    PacketSinkHelper packetSinkHelper (socketid, sinkAddress);
-//    ApplicationContainer sinkApps = packetSinkHelper.Install (nodes.Get (manet_DestnId));
-//    sinkApps.Start (app_start);
-//    sinkApps.Stop (app_stop);
-
-
+//	setting up the intermediate nodes.
+//	Note: This requires local delivery callback from aodvroutingprotocol.cc inside route input
 //	uint32_t j=2;
     for (uint32_t j=0;j<nNodes;j++)
     	if((j!=manet_DestnId)&&(j!=manet_sourceId))
@@ -1080,15 +959,8 @@ main (int argc, char *argv[])
 			myapp->SetStopTime (app_stop);
     	}
 
-//    Ptr<Socket> sink1 = SetupPacketReceive (interfaces.GetAddress (1), nodes.Get (1));
-
-
 
     devices.Get (0)->TraceConnectWithoutContext ("PhyRxDrop", MakeCallback (&RxDrop));
-
-//    std::string tr_name ("manet-routing-compare");
-//    wifiPhy.EnablePcapAll (std::string ("fifth_manet"));
-//    MobilityHelper::EnableAsciiAll (ascii.CreateFileStream (tr_name + ".mob"));
 
 //    Ptr<OutputStreamWrapper> stream_rx = ascii.CreateFileStream("fifth_received.txt");
     Ptr<OutputStreamWrapper> stream = ascii.CreateFileStream("first_routing.txt");
