@@ -1,0 +1,133 @@
+############################################################
+To obtain the location information
+############################################################
+goto src->netanim->model->animation-interface.cc
+
+goto the function-> AnimationInterface::MobilityAutoCheck ()
+add the following lines. This will poll the mobility of every node every "m_mobilityPollInterval" duration. You can set the value of m_mobilityPollInterval by calling the function-> AnimationInterface::SetMobilityPollInterval (Time t)
+
+-------------------------------------------------------------
+AsciiTraceHelper ascii;
+Ptr<OutputStreamWrapper> stream_mob = ascii.CreateFileStream("fifth_mobility.txt",std::ios::app);
+*stream_mob->GetStream()<<Simulator::Now ().GetSeconds ()<<",Node: "<<n->GetId () <<",x: " <<v.x<<",y: "<< v.y<<"\n";
+-------------------------------------------------------------
+But an issue happened. When the nodes are not moved, it doesn't print anything. To print even if the nodes are not moving, I commented line 481-485
+
+//      if (!NodeHasMoved (n, newLocation))
+//        {
+//          continue; //Location has not changed
+//        }
+//      else
+
+
+
+
+############################################################################################
+To obtain the broadcast information or printing routing table information
+############################################################################################
+
+The rouring table at every node can be print using (not limited to) the following functions. Search nsnam api for more functions to print the table
+-----------------------------------------------------------------------------------------------
+Ptr<OutputStreamWrapper> stream_routing = ascii.CreateFileStream("aodv_routing_table.txt");
+aodv.PrintRoutingTableAllAt(Seconds(0),stream_routing);
+aodv.PrintRoutingTableAllEvery(Seconds(5),stream_routing);
+------------------------------------------------------------------------------------------------
+The problem I faced was, it prints several unwanted informations first in the form of a table. Since I was reading the routing table in python to obtain some required informations, I had to get rid of these unwanted informations. This is how I did it.
+
+The above function call will take you to 
+Ipv4RoutingHelper::PrintRoutingTableAllAt()->Ipv4RoutingHelper::Print() which calls
+rp->PrintRoutingTable (stream);
+
+
+
+I commented the following lines of codes in the files mentioned below
+1)
+File src/internet/model/ipv4-list-routing.cc line 73
+Ipv4ListRouting::PrintRoutingTable (Ptr<OutputStreamWrapper> stream)
+line 76 
+//*stream->GetStream () << "Node: " << m_ipv4->GetObject<Node> ()->GetId ()
+//                        << ", Time: " << Now().As (Time::S)
+//                        << ", Local time: " << GetObject<Node> ()->GetLocalTime ().As (Time::S)
+//                        << ", Ipv4ListRouting table" << std::endl;
+
+and 
+//      *stream->GetStream () << "  Priority: " << (*i).first << " Protocol: " << (*i).second->GetInstanceTypeId () << std::endl;
+
+2) In src/aodv/model/aodv-rtable.cc, replaced RoutingTableEntry::Print (Ptr<OutputStreamWrapper> stream) const with the following functions
+
+(a)
+----------------------------------------------------------------------------------------------
+//MY edit
+void
+RoutingTable::Print (Ptr<OutputStreamWrapper> stream, uint32_t n) const
+{
+  std::map<Ipv4Address, RoutingTableEntry> table = m_ipv4AddressEntry;
+  Purge (table);
+//  *stream->GetStream () << "\nAODV Routing table\n"
+//                        << "Destination\tGateway\t\tInterface\tFlag\tExpire\t\tHops\n";
+  for (std::map<Ipv4Address, RoutingTableEntry>::const_iterator i =
+         table.begin (); i != table.end (); ++i)
+    {
+	  *stream->GetStream () <<Simulator::Now().GetSeconds()<<",Node:"<<n;
+      i->second.Print (stream);
+    }
+  *stream->GetStream () << "\n";
+}
+//till here
+
+
+(b)
+------------------------------------------------------------------------------------------------
+//My edit
+void
+RoutingTableEntry::Print (Ptr<OutputStreamWrapper> stream) const
+{
+  std::ostream* os = stream->GetStream ();
+  *os <<",Destination:"<< m_ipv4Route->GetDestination () << ",Gateway:" << m_ipv4Route->GetGateway ()
+      << ",Local:" << m_iface.GetLocal () << "\t";
+  switch (m_flag)
+    {
+    case VALID:
+      {
+        *os << "UP";
+        break;
+      }
+    case INVALID:
+      {
+        *os << "DOWN";
+        break;
+      }
+    case IN_SEARCH:
+      {
+        *os << "IN_SEARCH";
+        break;
+      }
+    }
+  *os << "\t";
+  *os << std::setiosflags (std::ios::fixed) << 
+  std::setiosflags (std::ios::left) << std::setprecision (2) <<
+  std::setw (14) << (m_lifeTime - Simulator::Now ()).GetSeconds ();
+  *os << "\t" << m_hops << "\n";
+}
+// till here
+-------------------------------------------------------------------------------------------------
+This gave me routing table in the proper format I want. I parsed this data to obtain proper meaningful information about the neighbours. We can used this table for any other use also.
+
+##################################################################################################
+To track the route followed by every packet, sorted based on the packetId
+##################################################################################################
+Edits in src/aodv/model/aodv-routing-protocol.cc
+
+##################################################################################################
+LCB edits done in Ipv4-L3-Protocol.cc, one extra trace was created for socket connection?? do not remember read main program
+##################################################################################################
+1) 
+Inside  Ipv4L3Protocol::LocalDeliver added
+		 i) "m_localDeliverTraceNode (this->GetObject<Node>(),ipHeader, p, iif);" by copying "m_localDeliverTrace (ipHeader, p, iif);"
+
+##################################################################################################
+TCP with AODV
+##################################################################################################
+
+
+
