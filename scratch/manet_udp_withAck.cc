@@ -342,47 +342,22 @@ SendApp::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize)
 //	Adding header
 	UdpAckHeader sendackheader;
 	sendackheader.SetSequenceNumber(seq);
-
-//	Ipv4Address ipv4address = Ipv4Address ("255.255.255.255");
-//	Ptr<Ipv4> ipv4 = GetNode()->GetObject<Ipv4> ();
-//
-//	Ptr<aodv::RoutingTable> RT=GetNode()->GetObject<aodv::RoutingTable>();
-//	std::map<Ipv4Address, aodv::RoutingTableEntry> table;
-//	table=RT->GetRoutingTable();
-////	aodv::RoutingTableEntry RT_entry;
-////	RT.LookupRoute(Ipv4Address("10.1.1.13"),RT_entry);
-//	NS_LOG_UNCOND(Simulator::Now().GetSeconds()<<"Node: "<<GetNode()->GetId()<<" Neighbors:");
-////			<<RT_entry.IsPrecursorListEmpty());
-//
-//	for (std::map<Ipv4Address, aodv::RoutingTableEntry>::const_iterator i =
-//	         table.begin (); i != table.end (); ++i)
-//	    {
-//		  Ptr<Ipv4Route> route=i->second.GetRoute();
-//		  NS_LOG_UNCOND(Simulator::Now().GetSeconds()<<
-//				  "Destination:"<< route->GetDestination ()
-//				  << ",Gateway:" << route->GetGateway ()  );
-//	    }
+	Ipv4Address dst = Ipv4Address ("10.1.1.1");
+	Ipv4Address src = Ipv4Address ("10.1.1.12");
 
 
-//	std::map<Ipv4Address, uint32_t> unreachable;
-//	RT.GetListOfDestinationWithNextHop(Ipv4Address("10.1.1.13"),unreachable);
-//
-//	NS_LOG_UNCOND("Neighbors:");
-//	for (std::map<Ipv4Address, uint32_t>::const_iterator i =
-//	         unreachable.begin (); i != unreachable.end (); ++i)
-//	    {
-//		  NS_LOG_UNCOND("Address: "<<i->first);
-//	    }
 
-//	NS_LOG_UNCOND(unreachable);
-//	if (ipv4 != 0)
-//	    {
-//		  	Ptr<Ipv4Route> route;
-//		  	ipv4->GetRoutingProtocol()->GetObject<Ipv4RoutingTableEntry>();
-//		  	Ipv4Address address("10.1.1.1");
-//		  	route->SetDestination(address);
-//		  	NS_LOG_UNCOND("Destn: "<< route->GetDestination());
-//	    }
+	Ptr<Ipv4> ipv4 = GetNode()->GetObject<Ipv4> ();
+	int32_t index = ipv4->GetInterfaceForAddress (src);
+//	NS_LOG_UNCOND("index: "<<index);
+	Ptr<NetDevice> oif = ipv4->GetNetDevice (index);
+	Socket::SocketErrno errno_ = Socket::ERROR_NOTERROR; //do not use errno as it is the standard C last error number
+//	Ptr<Ipv4RoutingProtocol> RP = GetNode()->GetObject<Ipv4RoutingProtocol> ();
+	Ptr<Ipv4Route> route;
+	Ipv4Header header;
+	header.SetDestination (dst);
+	route=ipv4->GetRoutingProtocol ()->RouteOutput (p, header, oif, errno_);
+	NS_LOG_UNCOND("Source: "<<route->GetSource()<<" Destination: "<<route->GetDestination()<<" Gateway: "<<route->GetGateway());
 
 
 	NS_LOG_LOGIC("Sending seq num: "<<sendackheader.GetSequenceNumber());
@@ -582,6 +557,7 @@ void ReceiverApp::StartApplication ()    // Called at time specified by Start
     {
       m_socket = Socket::CreateSocket (GetNode(), m_tid);
       NS_LOG_UNCOND("Created socket at "<<GetNode()->GetId());
+//      InetSocketAddress local = InetSocketAddress (Ipv4Address::GetAny (), port);
       m_socket->Bind (m_local);
     }
 
