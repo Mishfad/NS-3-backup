@@ -49,9 +49,12 @@ std::string socketid="ns3::UdpSocketFactory";
 
 std::string manet_destn="10.1.1.1";
 //Ipv4Address manet_destn("10.1.1.1");
-uint32_t manet_sourceId=11;
-uint32_t manet_DestnId=0;
-uint32_t nNodes=20;
+Ipv4Address dst = Ipv4Address ("10.1.1.1");
+Ipv4Address src = Ipv4Address ("10.1.1.12");
+
+uint8_t manet_sourceId=11;
+uint8_t manet_DestnId=0;
+uint8_t nNodes=20;
 uint32_t nPackets=50;
 
 double nSpeed=40; // in m/s
@@ -90,20 +93,18 @@ public:
 	bool GetBroadcastFlag(void);
 	void SetBroadcastFlag(bool val);
 
-
 	void InitializeChecksum (Address source, Address destination);
 
-
-
 private:
+	bool m_broadcastFlag;			// if true when received, broadcast it and set to false
 	SequenceNumber32 m_sequenceNumber;  //!< Sequence number
 	SequenceNumber32 m_ackNumber;       //!< ACK number
+
 	uint16_t m_sourcePort;      //!< Source port
 	uint16_t m_destinationPort; //!< Destination port
 
 	Address m_source;           //!< Source IP address
 	Address m_destination;      //!< Destination IP address
-	bool m_broadcastFlag;			// if true when received, broadcast it and set to false
 
 };
 
@@ -237,4 +238,15 @@ private:
 
 };
 
+int SearchArray(uint8_t* array,uint8_t length, uint8_t val)
+	{
+//		NS_LOG_UNCOND("search key: "<<int(val));
+		for(uint8_t i=0;i<length;i++)
+		{
+//			NS_LOG_UNCOND("array["<<int(i)<<"]="<<int(array[i]));
+			if(array[i]==val)
+				return i;
+		}
+		return -1;
+	}
 }
