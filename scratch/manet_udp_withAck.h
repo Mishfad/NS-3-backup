@@ -95,9 +95,8 @@ public:
 
 	void InitializeChecksum (Address source, Address destination);
 
-	bool m_broadcastFlag;			// if true when received, broadcast it and set to false
 private:
-
+	bool m_broadcastFlag;			// if true when received, broadcast it and set to false
 	SequenceNumber32 m_sequenceNumber;  //!< Sequence number
 	SequenceNumber32 m_ackNumber;       //!< ACK number
 
@@ -106,7 +105,7 @@ private:
 
 	Address m_source;           //!< Source IP address
 	Address m_destination;      //!< Destination IP address
-	uint16_t m_payloadSize;     //!< Payload size
+
 };
 
 class SendApp : public Application
