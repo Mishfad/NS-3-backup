@@ -162,7 +162,6 @@ UdpAckHeader::Deserialize (Buffer::Iterator start)
 }
 
 
-
 SendApp::SendApp ()
   : m_count(10),
 	m_socket (0),
