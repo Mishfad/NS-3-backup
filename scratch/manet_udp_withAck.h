@@ -146,6 +146,8 @@ private:
   EventId         m_sendEvent;
   bool            m_running;
   uint32_t        m_packetsSent;
+  uint8_t 		  m_nNeighbors;
+
 
   SequenceNumber32 m_seqNumber;
   SequenceNumber32 m_lastAcknowledgedNumber;
@@ -234,7 +236,9 @@ private:
 	std::list<Ptr<Socket> > m_socketList; //!< the accepted sockets
 
 	Ipv4Address         m_local;        //!< Local address to bind to
-	TypeId          m_tid;          //!< Protocol TypeId
+	TypeId          	m_tid;          //!< Protocol TypeId
+	uint8_t 		    m_nNeighbors;
+
 
 };
 
