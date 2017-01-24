@@ -128,6 +128,12 @@ private:
   uint32_t  SendDataPacket (SequenceNumber32 seq, uint32_t maxSize);
   void ReTxTimeout (void);
   void Retransmit (void);
+  void SendPackettoNeighbors(Ptr<Packet> p);
+
+  void SetnNeighbors(uint8_t n);
+  uint8_t GetnNeighbors(void);
+  uint8_t* FindNeighbors(void);
+
 //  void CreateReceiveSocket(void);
 
   void HandleRead (Ptr<Socket> socket);
@@ -227,6 +233,11 @@ public:
 	void CachePacket(uint32_t packet_index,Ptr<Node> node);
 	void PrintReceivedPacket (Ptr<Socket> socket, Ptr<Packet> packet);
 	void HandleRead (Ptr<Socket> socket);
+	void SetnNeighbors(uint8_t n);
+	uint8_t GetnNeighbors(void);
+	uint8_t* FindNeighbors(void);
+	void SendPackettoNeighbors(Ptr<Packet> p);
+
 
 	virtual void StartApplication (void);    // Called at time specified by Start
 	virtual void StopApplication (void);     // Called at time specified by Stop

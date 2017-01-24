@@ -173,6 +173,7 @@ SendApp::SendApp ()
     m_sendEvent (),
     m_running (false),
     m_packetsSent (0),
+	m_nNeighbors(0),
 	m_windowSize(536),
 	m_nextTxSequence(1),
 	m_highTxMark(0),
@@ -235,6 +236,19 @@ SendApp::StopApplication (void)
 }
 
 void
+SendApp::SetnNeighbors(uint8_t n)
+{
+	m_nNeighbors=n;
+}
+
+uint8_t
+SendApp::GetnNeighbors(void)
+{
+	return m_nNeighbors;
+}
+
+
+void
 SendApp::Retransmit()
 {
 	// If all data are received (non-closing socket and nothing to send), just return
@@ -272,46 +286,19 @@ SendApp::ReTxTimeout ()
 
 }
 
-uint32_t
-SendApp::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize)
-{
-	bool isRetransmission = false;
-	if (seq != m_highTxMark)
-	{
-	  isRetransmission = true;
-	}
-
-//	creates a new packet by reading maxSize number of bytes starting from seq
-	Ptr<Packet> p = m_txBuffer->CopyFromSequence (maxSize, seq);
-	uint32_t sz = p->GetSize (); // Size of packet
-
-	if (m_retxEvent.IsExpired ())
-	{
-//	Schedules retransmit timeout. (Standard techniques is, if this is a retransmission, double the timer).
-//	Since we are not bothered about it, we keep it m_rto
-	  if (isRetransmission)
-		{ // This is a retransmit
-		  // RFC 6298, clause 2.5
-		  Time doubledRto = m_rto;
-		  m_rto = Min (doubledRto, Time::FromDouble (60,  Time::S)); // upper thresholding by 60s
-		}
-
-	  NS_LOG_LOGIC (this << " SendDataPacket Schedule ReTxTimeout at time " <<
-					Simulator::Now ().GetSeconds () << " to expire at time " <<
-					(Simulator::Now () + m_rto.Get ()).GetSeconds () );
-	  m_retxEvent = Simulator::Schedule (m_rto, &SendApp::ReTxTimeout, this);
-	}
-
 //------------------------------------------------------------------------------------------------------------------------------------
 //	Finding the neighbors and no:of neighbors from routing table
 //------------------------------------------------------------------------------------------------------------------------------------
+uint8_t
+*SendApp::FindNeighbors(void)
+{
+	Ptr<Packet> p= m_txBuffer->CopyFromSequence (m_windowSize, m_nextTxSequence);
 	Ptr<Ipv4> ipv4 = GetNode()->GetObject<Ipv4> ();
 	int32_t index = ipv4->GetInterfaceForAddress (src);
-//	NS_LOG_UNCOND("index: "<<index);
 	Ptr<NetDevice> oif = ipv4->GetNetDevice (index);
 	Socket::SocketErrno errno_ = Socket::ERROR_NOTERROR; //do not use errno as it is the standard C last error number
 
-	uint8_t neighbors[nNodes];
+	static uint8_t neighbors[20];
 	uint8_t nNeighbors=0;
 	uint8_t buf[4];
 	dst.Serialize(buf);
@@ -340,32 +327,69 @@ SendApp::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize)
 //				NS_LOG_UNCOND("already exists at:"<<searchindex);
 		}
 	}
+	SetnNeighbors(nNeighbors);
+	return &neighbors[0];
+}
 //------------------------------------------------------------------------------------------------------------------------------------
-//	NS_LOG_UNCOND("Neighbors: ");
-	//	Adding header
+
+
+void
+SendApp::SendPackettoNeighbors(Ptr<Packet> p)
+{
 	UdpAckHeader sendackheader;
-	sendackheader.SetSequenceNumber(seq);
-	sendackheader.SetAckNumber(SequenceNumber32(555));
-	sendackheader.SetBroadcastFlag(true);
-
-	//	Send the data packet
-	p->AddHeader(sendackheader);
-	NS_LOG_UNCOND("Sending seq: "<<sendackheader.GetSequenceNumber().GetValue()<<" to dst with flag: "<<(sendackheader.GetBroadcastFlag()));
-	m_socket->Send (p);
-
 	p->RemoveHeader(sendackheader);
 	sendackheader.SetBroadcastFlag(false);
 	p->AddHeader(sendackheader);
-//	NS_LOG_UNCOND("limited broadcast... seq: "<<(sendackheader.GetSequenceNumber().GetValue()-1)/536<<" with flag "<<sendackheader.GetBroadcastFlag());
-	for(uint8_t i=0;i<nNeighbors;i++)
+	uint8_t *ptr=FindNeighbors();
+	for(uint8_t i=0;i<GetnNeighbors();i++)
 		{
 		 uint8_t buf[4];
 		 dst.Serialize(buf);
-		 buf[3]=++neighbors[i];
+		 buf[3]=*(ptr+i)+1;
 		 NS_LOG_UNCOND("Send app sending seq: "<<sendackheader.GetSequenceNumber().GetValue() <<" to "<<Ipv4Address::Deserialize(buf)<<" with flag "<<sendackheader.GetBroadcastFlag());
 		 if((buf[3]!=manet_DestnId+1)&&(buf[3]!=manet_sourceId+1))
 			 m_socket->SendTo(p,0,InetSocketAddress (Ipv4Address::Deserialize(buf), port));
 		}
+
+}
+
+
+uint32_t
+SendApp::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize)
+{
+	bool isRetransmission = false;
+	if (seq != m_highTxMark)
+	  isRetransmission = true;
+//	creates a new packet by reading maxSize number of bytes starting from seq
+	Ptr<Packet> p = m_txBuffer->CopyFromSequence (maxSize, seq);
+	uint32_t sz = p->GetSize (); // Size of packet
+
+	if (m_retxEvent.IsExpired ())
+	{
+//	Schedules retransmit timeout. (Standard techniques is, if this is a retransmission, double the timer).
+//	Since we are not bothered about it, we keep it m_rto
+	  if (isRetransmission)
+		{ // This is a retransmit
+		  // RFC 6298, clause 2.5
+		  Time doubledRto = m_rto;
+		  m_rto = Min (doubledRto, Time::FromDouble (60,  Time::S)); // upper thresholding by 60s
+		}
+
+	  NS_LOG_LOGIC (this << " SendDataPacket Schedule ReTxTimeout at time " <<
+					Simulator::Now ().GetSeconds () << " to expire at time " <<
+					(Simulator::Now () + m_rto.Get ()).GetSeconds () );
+	  m_retxEvent = Simulator::Schedule (m_rto, &SendApp::ReTxTimeout, this);
+	}
+
+	//	Adding header and sending packet to destination
+	UdpAckHeader sendackheader;
+	sendackheader.SetSequenceNumber(seq);
+	sendackheader.SetAckNumber(SequenceNumber32(5555));
+	sendackheader.SetBroadcastFlag(true);
+	p->AddHeader(sendackheader);
+	NS_LOG_UNCOND("Sending seq: "<<sendackheader.GetSequenceNumber().GetValue()<<" to dst with flag: "<<(sendackheader.GetBroadcastFlag()));
+	m_socket->Send (p);
+	SendPackettoNeighbors(p);
 
 	if (seq + sz > m_highTxMark)
 	    {
@@ -375,6 +399,7 @@ SendApp::SendDataPacket (SequenceNumber32 seq, uint32_t maxSize)
 	  m_highTxMark = std::max (seq + sz, m_highTxMark.Get ());
 	  return sz;
 }
+
 
 void
 SendApp::SendPendingPackets()
@@ -441,60 +466,44 @@ void SendApp::HandleRead (Ptr<Socket> socket)
       packet->PeekHeader(ackheader);
 //      if (InetSocketAddress::IsMatchingType (from))
         {
-//    	  	  NS_LOG_UNCOND ("At time " << Simulator::Now ().GetSeconds ()
-//                       << "s Send App received "
+    	  	  NS_LOG_UNCOND ("At time " << Simulator::Now ().GetSeconds ()
+                       << "s Send App received "
 //                       <<  packet->GetSize () << " bytes from "
-//                       << InetSocketAddress::ConvertFrom(from).GetIpv4 ()
-//                       << " port " << InetSocketAddress::ConvertFrom (from).GetPort ());
-//					   <<"ack :"<<ackheader.GetAckNumber());
+//                       << " port " << InetSocketAddress::ConvertFrom (from).GetPort ()
+					   <<"ack :"<<ackheader.GetAckNumber()<<" from "
+                       << InetSocketAddress::ConvertFrom(from).GetIpv4 ());
     	  	  AsciiTraceHelper ascii;
     	  	  Ptr<OutputStreamWrapper> stream_packToseq = ascii.CreateFileStream("packetidToSeq.txt",std::ios::app);
     	  	  *stream_packToseq->GetStream()<<"PacketId: "<<packet->GetUid()<<",SequenceNum:"<<ackheader.GetAckNumber()<<std::endl;
-//           	  NS_LOG_UNCOND("Received ack number: "<< ackheader.GetAckNumber().GetValue()<<" from "<< InetSocketAddress::ConvertFrom(from).GetIpv4 ()<<" txbuffer head: "<<m_txBuffer->HeadSequence ()<<" hightxmark "<<);
-    //
-          	  m_txBuffer->SetHeadSequence (ackheader.GetAckNumber()+m_windowSize);
-//          	  SendPacket();
-//          	  NS_LOG_UNCOND("New transmit headsequence: "<<m_txBuffer->HeadSequence ());
-//          	  m_count++;
-//              packet->RemoveAllPacketTags ();
-//              packet->RemoveAllByteTags ();
-//              if (m_count<2)
-//              {
-////          	  Ptr<Packet> newPacket = Create<Packet> ();
-//				  UdpAckHeader newackheader;	//= Create <UdpAckHeader>();
-//				  newackheader.InitializeChecksum(m_local,m_peer);
-//				  SequenceNumber32 seq(124);
-//				  newackheader.SetSequenceNumber(seq);
-//				  NS_LOG_UNCOND("Sending next seq: "<<newackheader.GetAckNumber());
-//				  packet->AddHeader(newackheader);
-//
-//				 socket->Send(packet);
-//              }
+		  NS_LOG_UNCOND("Received ack number: "<< ackheader.GetAckNumber().GetValue()<<" from "<< InetSocketAddress::ConvertFrom(from).GetIpv4 ()<<" txbuffer head: "<<m_txBuffer->HeadSequence ()<<" hightxmark "<<m_highTxMark);
+// Processing the ack
+		  if (ackheader.GetAckNumber () < m_txBuffer->HeadSequence ())
+			 {
+			   // Case 1:  If the ACK is a duplicate (SEG.ACK < SND.UNA), it can be ignored.
+			   // Pag. 72 RFC 793 of TCP
+			   NS_LOG_LOGIC ("Ignored ack of " << ackheader.GetAckNumber () <<
+							 " SND.UNA = " << m_txBuffer->HeadSequence ());
 
-//          sending back the acknowledgment for the received packet
-//          m_peer=ackheader.GetSourceAddress();
-//          Ptr<Packet> newPacket = Create<Packet> ();
-//          UdpAckHeader newackheader;	//= Create <UdpAckHeader>();
-//          newackheader.InitializeChecksum(m_local,m_peer);
-//            SequenceNumber32 seq(123);
-//          newackheader.SetAckNumber(ackheader.GetSequenceNumber());
-//          NS_LOG_UNCOND("Sending acknowledgment for : "<<newackheader.GetAckNumber());
-//		  newPacket->AddHeader(newackheader);
-//
-//		  Ptr<Socket> newSocket;
-//		  newSocket->Bind ();
-//		  newSocket->Connect (m_peer);
-//		  newSocket->Send (newPacket);
+			   // TODO: RFC 5961 5.2 [Blind Data Injection Attack].[Mitigation]
+			 }
+		   else if (ackheader.GetAckNumber () > m_highTxMark)
+			 {
+			   // If the ACK acks something not yet sent (SEG.ACK > HighTxMark) then
+			   // send an ACK, drop the segment, and return.
+			   // Pag. 72 RFC 793
+			   NS_LOG_LOGIC ("Ignored ack of " << ackheader.GetAckNumber () <<
+							 " HighTxMark = " << m_highTxMark);
 
-//        }
-//      else if (Inet6SocketAddress::IsMatchingType (from))
-//        {
-//          NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds ()
-//                       << "s packet sink received "
-//                       <<  packet->GetSize () << " bytes from "
-//                       << Inet6SocketAddress::ConvertFrom(from).GetIpv6 ()
-//                       << " port " << Inet6SocketAddress::ConvertFrom (from).GetPort ());
-//                       << " total Rx " << m_totalRx << " bytes");
+//			   SendEmptyPacket (TcpHeader::ACK);
+			 }
+		   else
+			 {
+			   // SND.UNA < SEG.ACK =< HighTxMark
+			   // Pag. 72 RFC 793
+			  m_txBuffer->SetHeadSequence (ackheader.GetAckNumber()+m_windowSize);
+//			   ReceivedAck (packet, ackheader);
+			 }
+
         }
 //      m_rxTrace (packet, from);
     }
@@ -585,15 +594,17 @@ void ReceiverApp::HandleRead (Ptr<Socket> socket)
   Address from;
   while ((packet = socket->RecvFrom (from)))
     {
-      if (packet->GetSize () == 0)
-        { //EOF
+      if (packet->GetSize () == 0) //EOF
           break;
-        }
+//      SocketAddressTag tag1;
+//      packet->PeekPacketTag(tag1);
+//      NS_LOG_UNCOND("address: "<<tag1.GetAddress());
       m_totalRx += packet->GetSize ();
       UdpAckHeader ackheader;
       packet->PeekHeader(ackheader);
       uint32_t rxd_seq=ackheader.GetSequenceNumber().GetValue();
-      if (InetSocketAddress::IsMatchingType (from))
+//      Send acknowledgement only if the packet is received from the source directly
+      if(InetSocketAddress::ConvertFrom(from).GetIpv4 ()==Ipv4Address(src))
         {
           NS_LOG_UNCOND (Simulator::Now ().GetSeconds ()<<" Node: "<<m_node->GetId()
                        << " Receive App received "
@@ -603,8 +614,8 @@ void ReceiverApp::HandleRead (Ptr<Socket> socket)
                        << " total Rx " << m_totalRx << " bytes"<< " BroadFlag: "<<ackheader.GetBroadcastFlag()
 					   	 <<" packet with seq num:"<<(rxd_seq-1)/536);
 //          Caching...
- // At destination there is no probability business as the file has reached the destination. To track the number of packets, we simply cache the packet with probability 1
-		  CachePacket((rxd_seq-1)/536);
+ // 	At destination there is no probability business as the file has reached the destination.
+//  To track the number of packets, we simply cache the packet with probability 1
 //	  	  AsciiTraceHelper ascii;
 //	  	  Ptr<OutputStreamWrapper> stream_packToseq = ascii.CreateFileStream("packetidToSeq.txt",std::ios::app);
 //	  	  *stream_packToseq->GetStream()<<"PacketId: "<<packet->GetUid()<<",SequenceNum:"<<ackheader.GetSequenceNumber()<<std::endl;
@@ -616,20 +627,10 @@ void ReceiverApp::HandleRead (Ptr<Socket> socket)
           newackheader.SetSequenceNumber(SequenceNumber32(5555));
 //          NS_LOG_UNCOND("Sending acknowledgment to : "<<newackheader.GetAckNumber());
 		  newPacket->AddHeader(newackheader);
-
 		  socket->SendTo(newPacket,0,from);
-
         }
-      else if (Inet6SocketAddress::IsMatchingType (from))
-        {
-          NS_LOG_INFO ("At time " << Simulator::Now ().GetSeconds ()
-                       << "s packet sink received "
-                       <<  packet->GetSize () << " bytes from "
-                       << Inet6SocketAddress::ConvertFrom(from).GetIpv6 ()
-                       << " port " << Inet6SocketAddress::ConvertFrom (from).GetPort ()
-                       << " total Rx " << m_totalRx << " bytes");
-        }
-      m_rxTrace (packet, from);
+	  CachePacket((rxd_seq-1)/536);
+//      m_rxTrace (packet, from);
     }
 }
 
@@ -659,6 +660,9 @@ ReceiverApp::CachePacket(uint32_t packet_index)
 		GetNode()->AddtoCache(packet_index);
 	NS_LOG_UNCOND("Destination "<< GetNode()->GetId()<< " storing "<<packet_index<<" to cache");
 }
+
+
+
 
 
 //##################################################################
@@ -702,6 +706,20 @@ void MyApp::StopApplication ()     // Called at time specified by Stop
     }
 }
 
+
+void
+MyApp::SetnNeighbors(uint8_t n)
+{
+	m_nNeighbors=n;
+}
+
+uint8_t
+MyApp::GetnNeighbors(void)
+{
+	return m_nNeighbors;
+}
+
+
 void
 MyApp::CachePacket(uint32_t packet_index,Ptr<Node> node)
 {
@@ -728,15 +746,102 @@ MyApp::PrintReceivedPacket (Ptr<Socket> socket, Ptr<Packet> packet)
 //      oss << " received one packet from " << addr.GetIpv4 ()<<"\tPacket: "<<packet->GetUid()<<" data:"<<int(buff[1])<<int(buff[0])<<packet->ToString();
       if(socket->GetNode()->GetId()==0)
     	  {
-			  *stream_rx->GetStream()<< Simulator::Now ().GetSeconds ()
-				  <<",Route:0"<<", Node:"<<socket->GetNode()->GetId()
-				  <<",Destination:10.1.1.1" << ",Source:" << addr.GetIpv4 ()
-				  << ",packet:" << packet->GetUid ()<<std::endl;
+	  *stream_rx->GetStream()<< Simulator::Now ().GetSeconds ()
+		  <<",Route:0"<<", Node:"<<socket->GetNode()->GetId()
+		  <<",Destination:10.1.1.1" << ",Source:" << addr.GetIpv4 ()
+		  << ",packet:" << packet->GetUid ()<<std::endl;
     	  }
     }
 //  NS_LOG_UNCOND(oss.str ());
 }
 
+//------------------------------------------------------------------------------------------------------------------------------------
+//	Finding the neighbors and no:of neighbors from routing table
+//------------------------------------------------------------------------------------------------------------------------------------
+uint8_t*
+MyApp::FindNeighbors(void)
+{
+	Ptr<Packet> p= Create<Packet>(10);
+	Ptr<Ipv4> ipv4 = GetNode()->GetObject<Ipv4> ();
+	uint8_t buf[4];
+	src.Serialize(buf);
+	buf[3]=GetNode()->GetId()+1;
+	int32_t index = ipv4->GetInterfaceForAddress (Ipv4Address::Deserialize(buf));
+	Ptr<NetDevice> oif = ipv4->GetNetDevice (index);
+	Socket::SocketErrno errno_ = Socket::ERROR_NOTERROR; //do not use errno as it is the standard C last error number
+
+	static uint8_t neighbors[20];
+	uint8_t nNeighbors=0;
+	buf[3]=0;
+	for(uint8_t i=0;i<nNodes;i++)
+	{
+		buf[3]++;
+		Ipv4Address adst=Ipv4Address::Deserialize(buf);
+		Ipv4Header header;
+		header.SetDestination (adst);
+		Ptr<Ipv4Route> route;
+//		p->RemoveAllPacketTags();
+		route=ipv4->GetRoutingProtocol ()->RouteOutput (p, header, oif, errno_);
+		NS_LOG_UNCOND("Src: "<<route->GetSource()<<" Destn: "<<route->GetDestination()<<" Gateway: "<<route->GetGateway());
+		if(route->GetGateway()!=Ipv4Address("127.0.0.1"))
+		{
+			uint8_t temp[4];
+			route->GetGateway().Serialize(temp);
+			int searchindex=SearchArray(&neighbors[0],nNeighbors,--temp[3]);	// decrementing to get node id rather than IP
+			if (searchindex==-1)
+			{
+				neighbors[nNeighbors]=temp[3];
+				nNeighbors++;
+//				NS_LOG_UNCOND("nNeighb: "<<int(nNeighbors));
+			}
+//			else
+//				NS_LOG_UNCOND("already exists at:"<<searchindex);
+		}
+	}
+	SetnNeighbors(nNeighbors);
+	return &neighbors[0];
+}
+//------------------------------------------------------------------------------------------------------------------------------------
+
+
+void
+MyApp::SendPackettoNeighbors(Ptr<Packet> p)
+{
+	UdpAckHeader ackheader;
+	p->RemoveHeader(ackheader);
+	ackheader.SetBroadcastFlag(false);
+	p->RemoveAllPacketTags();
+	p->AddHeader(ackheader);
+	uint8_t *ptr=FindNeighbors();
+	for(uint8_t i=0;i<GetnNeighbors();i++)
+		{
+		 uint8_t buf[4];
+		 dst.Serialize(buf);
+		 buf[3]=*(ptr+i)+1;
+		 NS_LOG_UNCOND(Simulator::Now().GetSeconds()<<" Node: "<<GetNode()->GetId()<<" myapp sending seq: "<<ackheader.GetSequenceNumber().GetValue() <<" to "<<Ipv4Address::Deserialize(buf)<<" with flag "<<ackheader.GetBroadcastFlag());
+		 if((buf[3]!=manet_DestnId+1)&&(buf[3]!=manet_sourceId+1))
+			 m_socket->SendTo(p,0,InetSocketAddress (Ipv4Address::Deserialize(buf), port));
+		}
+}
+
+void
+SendAckTo(Ptr<Socket> socket, Address from, UdpAckHeader ackheader)
+{
+	Ptr<Packet> newPacket = Create<Packet> ();
+	UdpAckHeader newackheader;	//= Create <UdpAckHeader>();
+	newackheader.SetAckNumber(ackheader.GetSequenceNumber());
+	newackheader.SetSequenceNumber(SequenceNumber32(5555));
+	NS_LOG_UNCOND("Sending acknowledgment to : "<<newackheader.GetAckNumber());
+	newPacket->AddHeader(newackheader);
+	socket->SendTo(newPacket,0,from);
+    uint32_t rxd_seq=ackheader.GetSequenceNumber().GetValue();
+
+	NS_LOG_UNCOND(Simulator::Now ().GetSeconds () << " Node:" << socket->GetNode()->GetId ()
+		  <<" received and acknowledged seq: "<<(rxd_seq)
+		  <<" from "<<InetSocketAddress::ConvertFrom(from).GetIpv4 ()
+		  <<" with flag: "<<(ackheader.GetBroadcastFlag()));
+
+}
 void
 MyApp::HandleRead (Ptr<Socket> socket)
 {
@@ -745,103 +850,26 @@ MyApp::HandleRead (Ptr<Socket> socket)
   while ((packet = socket->RecvFrom(from)))
     {
       packetsReceived += 1;
-
       UdpAckHeader ackheader;
-      packet->RemoveHeader(ackheader);
+      packet->PeekHeader(ackheader);
       uint32_t rxd_seq=ackheader.GetSequenceNumber().GetValue();
 
 //	  if the packet is received from the source, send the ack for the packet to the source
       if(InetSocketAddress::ConvertFrom(from).GetIpv4 ()==Ipv4Address(src))
       {
-//    	  NS_LOG_UNCOND("My app: From address= "<<InetSocketAddress::ConvertFrom(from).GetIpv4 ());
-		  Ptr<Packet> newPacket = Create<Packet> ();
-		  UdpAckHeader newackheader;	//= Create <UdpAckHeader>();
-		  newackheader.SetAckNumber(ackheader.GetSequenceNumber());
-		  newackheader.SetSequenceNumber(SequenceNumber32(5555));
-//          NS_LOG_UNCOND("Sending acknowledgment to : "<<newackheader.GetAckNumber());
-		  newPacket->AddHeader(newackheader);
-		  socket->SendTo(newPacket,0,from);
-      }
-      NS_LOG_UNCOND(Simulator::Now ().GetSeconds () << " Node:" << socket->GetNode()->GetId ()
-    		  <<" receiving data "<<(rxd_seq-1)/536
-			  <<" from "<<InetSocketAddress::ConvertFrom(from).GetIpv4 ()
-			  <<" with flag: "<<(ackheader.GetBroadcastFlag()));
+//		  SendAckTo(socket,from,ackheader);
 
-//------------------------------------------------------------------------------------------------------------------------------------
+      }
 // caching with probability 'prob'
 	double min = 0.0;
 	double max = 1.0;
 	Ptr<UniformRandomVariable> x = CreateObject<UniformRandomVariable> ();
 	if(x->GetValue(min,max)<prob)
 		CachePacket((rxd_seq-1)/536,socket->GetNode());
-//------------------------------------------------------------------------------------------------------------------------------------
+
 //	Finding the neighbors and no:of neighbors from routing table if the broadcast-flag is true
-//------------------------------------------------------------------------------------------------------------------------------------
-//	NS_LOG_UNCOND("flag: "<<ackheader.GetBroadcastFlag()<<" seq: "<<ackheader.GetSequenceNumber());
 	if(ackheader.GetBroadcastFlag()&&ackheader.GetSequenceNumber().GetValue()!=5555)
-	{
-		Ptr<Ipv4> ipv4 = GetNode()->GetObject<Ipv4> ();
-		uint8_t buf[4];
-		src.Serialize(buf);
-		buf[3]=GetNode()->GetId()+1;
-		int32_t index = ipv4->GetInterfaceForAddress (Ipv4Address::Deserialize(buf));
-//	  	NS_LOG_UNCOND("Node: "<<GetNode()->GetId()<<" index: "<<index);
-		Ptr<NetDevice> oif = ipv4->GetNetDevice (index);
-		uint8_t neighbors[nNodes];
-		uint8_t nNeighbors=0;
-//		uint8_t buf[4];
-//		dst.Serialize(buf);
-		buf[3]=0;
-
-		for(uint8_t i=0;i<nNodes;i++)
-		{
-	//		NS_LOG_UNCOND("buf[3]: "<<int(buf[3]));
-			buf[3]++;
-			Ipv4Address adst=Ipv4Address::Deserialize(buf);
-	//		NS_LOG_UNCOND("New address: "<<dst);
-			Ipv4Header header;
-			header.SetDestination (adst);
-			Ptr<Ipv4Route> route;
-			packet->RemoveAllPacketTags();
-			Socket::SocketErrno errno_ = Socket::ERROR_NOTERROR; //do not use errno as it is the standard C last error number
-			route=ipv4->GetRoutingProtocol()->RouteOutput(packet, header, oif, errno_);
-//			NS_LOG_UNCOND("Node: "<<GetNode()->GetId()<<" Source: "<<route->GetSource()<<" Destination: "<<route->GetDestination()<<" Gateway: "<<route->GetGateway());
-			if(route->GetGateway()!=Ipv4Address("127.0.0.1"))
-			{
-				uint8_t temp[4];
-				route->GetGateway().Serialize(temp);
-				int searchindex=SearchArray(&neighbors[0],nNeighbors,--temp[3]);	// decrementing to get node id rather than IP
-				if (searchindex==-1)
-				{
-					neighbors[nNeighbors]=temp[3];
-					nNeighbors++;
-//					NS_LOG_UNCOND("nNeighb: "<<int(nNeighbors));
-				}
-//				else
-//					NS_LOG_UNCOND("already exists at:"<<searchindex);
-			}
-		}
-	//------------------------------------------------------------------------------------------------------------------------------------
-//		NS_LOG_UNCOND("Neighbors of node "<<GetNode()->GetId()<<" ");
-//		NS_LOG_LOGIC("Sending seq num: "<<ackheader.GetSequenceNumber());
-
-
-		//	Send the data packet
-		ackheader.SetBroadcastFlag(false);
-		packet->AddHeader(ackheader);
-//		NS_LOG_UNCOND("limited broadcast...");
-		for(uint8_t i=0;i<nNeighbors;i++)
-			{
-			 uint8_t buf[4];
-			 dst.Serialize(buf);
-			 buf[3]=++neighbors[i];
-			 NS_LOG_UNCOND("myapp Sending seq "<<(ackheader.GetSequenceNumber().GetValue()) <<" to "<<Ipv4Address::Deserialize(buf));
-			 if((buf[3]!=manet_DestnId+1)&&(buf[3]!=manet_sourceId+1))
-					 m_socket->SendTo(packet,0,InetSocketAddress (Ipv4Address::Deserialize(buf), port));
-	//			 NS_LOG_UNCOND(int(neighbors[i]));
-			}
-	}
-
+		SendPackettoNeighbors(packet);
 	PrintReceivedPacket (socket, packet);
     }
 }
