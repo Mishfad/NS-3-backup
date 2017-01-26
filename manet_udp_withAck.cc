@@ -172,7 +172,7 @@ SendApp::SendApp ()
     m_dataRate (0),
     m_sendEvent (),
     m_running (false),
-    m_packetsSent (0),
+    m_npacketsSent (0),
 	m_windowSize(536),
 	m_nextTxSequence(1),
 	m_highTxMark(0),
@@ -201,7 +201,6 @@ void
 SendApp::StartApplication (void)
 {
   m_running = true;
-  m_packetsSent = 0;
   TypeId tid = TypeId::LookupByName (socketid);
   // Create the socket if not already
   if (!m_receivesocket)
