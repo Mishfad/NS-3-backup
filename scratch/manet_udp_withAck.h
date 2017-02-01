@@ -56,6 +56,7 @@ uint8_t manet_sourceId=11;
 uint8_t manet_DestnId=0;
 uint8_t nNodes=20;
 uint32_t nPackets=50;
+uint32_t PacketSize=1000;
 
 double nSpeed=40; // in m/s
 uint32_t xRange=1500;
@@ -78,8 +79,8 @@ public:
 	virtual TypeId GetInstanceTypeId (void) const;
 	virtual void Print (std::ostream &os) const;
 	virtual uint32_t GetSerializedSize (void) const;
-	virtual void Serialize (Buffer::Iterator start) const;
-	virtual uint32_t Deserialize (Buffer::Iterator start);
+	virtual void Serialize (Buffer::Iterator start) const; // VERY IMPORTANT FUNCTIONs
+	virtual uint32_t Deserialize (Buffer::Iterator start); // - need to edit these if you add a new variable
 
 	void SetSequenceNumber (SequenceNumber32 sequenceNumber);
 	void SetAckNumber (SequenceNumber32 ackNumber);
@@ -92,11 +93,14 @@ public:
 	Address GetSourceAddress (void) const;
 	bool GetBroadcastFlag(void);
 	void SetBroadcastFlag(bool val);
+	bool GetAckFlag(void);
+	void SetAckFlag(bool val);
 
 	void InitializeChecksum (Address source, Address destination);
 
 private:
 	bool m_broadcastFlag;			// if true when received, broadcast it and set to false
+	bool m_AckFlag;			// if true the packet is an acknowledgement packet, and if false the packet is a data packet
 	SequenceNumber32 m_sequenceNumber;  //!< Sequence number
 	SequenceNumber32 m_ackNumber;       //!< ACK number
 
@@ -128,6 +132,13 @@ private:
   uint32_t  SendDataPacket (SequenceNumber32 seq, uint32_t maxSize);
   void ReTxTimeout (void);
   void Retransmit (void);
+  void SendPackettoNeighbors(Ptr<Packet> p);
+
+  void SetnNeighbors(uint8_t n);
+  uint8_t GetnNeighbors(void);
+  uint8_t* FindNeighbors(void);
+  void ProcessReceivedAckPacket(Ptr<Packet> p);
+
 //  void CreateReceiveSocket(void);
 
   void HandleRead (Ptr<Socket> socket);
@@ -145,7 +156,10 @@ private:
   DataRate        m_dataRate;
   EventId         m_sendEvent;
   bool            m_running;
-  uint32_t        m_packetsSent;
+  uint32_t        m_npacketsSent; // no of packets sent
+  uint32_t        m_npacketstoBuf; // no of packets added to buffer
+  uint8_t 		  m_nNeighbors;
+
 
   SequenceNumber32 m_seqNumber;
   SequenceNumber32 m_lastAcknowledgedNumber;
@@ -199,6 +213,7 @@ public:
   void HandlePeerError (Ptr<Socket> socket);
 
   void CachePacket(uint32_t);
+  void ProcessReceivedPacket(Ptr<Socket> socket, Ptr<Packet> packet, Address from);
 
   // In the case of TCP, each socket accept returns a new socket, so the
   // listening socket is stored separately from the accepted sockets
@@ -220,21 +235,39 @@ public:
 class MyApp: public Application
 {
 public:
+	MyApp();
+	~MyApp();
 
 	void Setup (Ipv4Address addr, Ptr<Node> node);
 	void CachePacket(uint32_t packet_index,Ptr<Node> node);
 	void PrintReceivedPacket (Ptr<Socket> socket, Ptr<Packet> packet);
 	void HandleRead (Ptr<Socket> socket);
+	void SetnNeighbors(uint8_t n);
+	uint8_t GetnNeighbors(void);
+	uint8_t* FindNeighbors(void);
+	void SendPackettoNeighbors(Ptr<Packet> p);
+	void SendAckTo(Ptr<Socket> socket, Address from, UdpAckHeader ackheader);
+	void ForwardPackettoDst(Ptr<Socket> socket,Ptr<Packet>packet);
+	void AddPackettoBuffer(Ptr<Packet> packet);
 
 	virtual void StartApplication (void);    // Called at time specified by Start
 	virtual void StopApplication (void);     // Called at time specified by Stop
+
+	uint32_t m_nPacketsinBuffer;
+	uint32_t m_nPacketsTxd;
+	uint32_t next_packet;
+	uint32_t *rxd_head;
+//	rxd_head=&next_packet;
 
 private:
 	Ptr<Socket>     m_socket;       //!< Listening socket
 	std::list<Ptr<Socket> > m_socketList; //!< the accepted sockets
 
 	Ipv4Address         m_local;        //!< Local address to bind to
-	TypeId          m_tid;          //!< Protocol TypeId
+	TypeId          	m_tid;          //!< Protocol TypeId
+	uint8_t 		    m_nNeighbors;
+
+
 
 };
 
