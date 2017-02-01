@@ -1,0 +1,72 @@
+
+#### Based on the NS-3 tutorial videos by Hitesh Choudhary#####
+
+1) Download ns3-allinone from the website-> https://www.nsnam.org/ns-3-25/download/
+2) Install pre-requisites
+"sudo apt-get install gcc g++ python python-dev mercurial bzr gdb valgrind gsl-bin libgsl0-dev libgsl0ldbl flex bison tcpdump sqlite sqlite3 libsqlite3-dev libxml2 libxml2-dev libgtk2.0-0 libgtk2.0-dev uncrustify doxygen graphviz imagemagick texlive texlive-latex-extra texlive-generic-extra texlive-generic-recommended texinfo dia texlive texlive-latex-extra texlive-extra-utils texlive-generic-recommended texi2html python-pygraphviz python-kiwi python-pygoocanvas libgoocanvas-dev python-pygccxml"
+3) Untar ns3
+4) Go to ns-allinone folder
+ 	cd Documents/NS-3/ns-allinone-3.25/
+5) sudo apt-get install synaptic
+6) ./build.py --enable-examples --enable-tests
+7) Open synaptic and install g++
+8) Go to ns-3.25 folder and run test.py ("./test.py" and then ./test.py -c core)
+9) ./waf -d debug --enable-examples --enable-tests configure
+10)./waf --run scratch/first
+
+# Installing netanim
+
+0) open synaptic and install qt4-qmake, libqt4-dev, and libxml2-dev
+1) Go to netanim folder
+2) make clean
+3) qmake NetAnim.pro
+4) make
+5) ./NetAnim
+
+# eclipse
+Either install using synaptic
+or
+download eclipse for c++ ide
+1) Install java jdk and jre using synaptic or other way given in wikihow
+2) Create a new project with some name
+3) Uncheck default location and give it Documents/NS-3/ns-allinone-3.25/ns-3.25
+4) Right click on the project, go to team->share project. Select mercurial and selected repository should be Documents/NS-3/ns-allinone-3.25/ns-3.25
+5)Right click on the project, go to properties. Select c/c++ build
+	a) Uncheck "Use default build commmand" and Generate makefile automatically
+	b) In the buld command, type Documents/NS-3/ns-allinone-3.25/ns-3.25/waf
+	c) Build directory-> Documents/NS-3/ns-allinone-3.25/ns-3.25/build
+	d) Click on the behavior tab. Type Build (incremental build)->build (instead of "all")
+
+
+#### Eclipse in debugging mode####### or FOLLOW THE YOUTUBE VIDEO BY HITESH CHOUDHARY
+
+# taken from "https://groups.google.com/forum/#!topic/ns-3-users/ldSmhlOLWzM"
+1) Create a new project (doesn't matter whether in default folder or ns-3 folder(2nd one worked for me))
+	Select File -> New -> C++ Project
+2) Then import ns-3 folder or instead of import, while creating, uncheck default folder and give it .../.../ns-3.25
+	a) Import -> General -> File System
+	b) ns-allinone-3.25/ns-3.25
+3) We have to configure the build toolchain to use waf. Right-click to the project and go to 	Properties->C/C++ Build. Uncheck all use default build command
+	a) Set build command to   "/home/mishfad/Documents/NS-3/ns-allinone-3.25/ns-3.25/waf"
+	b) Set build directory to "/home/mishfad/Documents/NS-3/ns-allinone-3.25/ns-3.25/build"
+4) Then go to Behaviour tab and set build and clean respectively as below
+	a) Set build to build
+	b) Set Clean to clean
+5) (Optional) To enable the configure options in waf we should to follow the next steps:
+	a) Right-click to the project and select:
+	b) Make Targets -> Create ...
+	c) Select a name and fill the rest of the fields
+	d) Make Target field as "configure --enable-examples --enable-tests"
+	e) Set build command to "/home/mishfad/Documents/NS-3/ns-allinone-3.25/ns-3.25 /waf"
+6) Next you have to change the run configurations
+	a) Go to Run->Run configurations and select c/c++ application
+	b) If you don't have any configurations, click new
+	c) Then, make C/C++ application as "build/scratch/first"
+7) Click on the environment tab and check if it is as is given in the figure 7
+	a) If not, click on new and 
+	b) give name as "LD_LIBRARY_PATH" and value as "/home.../.../ns-3.25/build" (7b.png)
+8) Go to debug configurations and set the field as we did in Run configurations (8.png)
+
+
+
+
